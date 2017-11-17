@@ -1,4 +1,16 @@
 //! Master "Speed Dial" lock simulation.
+//!
+//! This code is based on playing with the simulator at:
+//! https://toool.nl/images/e/e1/MhVisualizer_V2.0_p.swf
+//!
+//! The goal of this program is to get a better feel of the combination
+//! space of the lock, including getting a better grasp of which
+//! combinations are equivalent.
+//!
+//! Because of the way optimization works in Rust, this program will run
+//! significantly slower in a debug than a release build.  I recommend
+//! running it with "cargo run --release -- ..." where "..." are any
+//! arguments to pass to this program.
 
 #[macro_use]
 extern crate clap;
@@ -35,9 +47,14 @@ fn main() {
                  "Show all of the best candidates, not just the first"))
         .get_matches();
 
+    // This tree will hold all resulting states of the lock, keeping with
+    // them the various sequences that got us there.
     let mut all = BTreeMap::new();
 
-    // let max = 11;
+    // Get the argument for the maximum number of steps to try.  Since the
+    // lock accepts arbitrary-length sequences, we need to limit the search
+    // space.  All combinations can be reached with 11 moves, although with
+    // 11 moves, there are no unique states.
     let max = matches.value_of("max").unwrap_or("10")
         .parse::<u64>().unwrap();
 
@@ -45,22 +62,23 @@ fn main() {
     let show_all = matches.is_present("all");
     let show_bests = matches.is_present("bests");
 
-    for moves in 0..max {
-        for binary in 0u64 .. (1 << 2*(moves+1)) {
+    // Iterate through the number of moves, starting with single moves.
+    for moves in 1..(max+1) {
+        // Since there are 4 possibilities at each step, iterating through
+        // a 2^(2*moves) binary number, and using each pair of bits will
+        // give us all moves of that number of steps.
+        for binary in 0u64 .. (1 << 2*moves) {
+            // For a given move, create a `Lock` to simulate it, apply the
+            // moves, and then store it in the map based on the resulting
+            // Lock state.
             let mut lock = Lock::new();
             let mut tmp = binary;
             let mut seq = vec![];
-            for _ in 0..(moves + 1) {
+            for _ in 0..moves {
                 lock.slide((tmp & 3) as u8);
                 seq.push((tmp & 3) as u8);
                 tmp >>= 2;
             }
-            // if !all.contains_key(&lock) {
-            //     // println!("Lock: {0} (move {2:01$b})", lock, 2*(moves+1), binary);
-            //     println!("Lock: {} ({})", lock, MoveSeq(seq));
-            // } else {
-            //     // println!("         redundant: ({:?})", seq);
-            // }
             let ent = all.entry(lock).or_insert_with(|| Target {
                 count: 0,
                 seq: MoveSeq(seq.clone()),
@@ -80,6 +98,11 @@ fn main() {
     let dups: usize = all.values().map(|x| x.count - 1).sum();
     println!("{} dups", dups);
 
+    // Extract all of the moves, and sort them so that the ones with the
+    // fewest duplicates occur first, and within, they are sorted by the
+    // number of steps involved.  When choosing a combination, no security
+    // is gained by using a longer sequence, since a shorter one would be
+    // found first in a brute-force search.
     let mut moves: Vec<_> = all.iter().collect();
     moves.sort_by(|a, b| a.1.seq.0.len().cmp(&b.1.seq.0.len()));
     moves.sort_by_key(|m| m.1.count);
@@ -95,7 +118,8 @@ fn main() {
         }
     }
 
-    // Find the best move.
+    // Find the best move, a move with the fewest number of conflicts that
+    // is the shortest.
     let best_count = moves[0].1.count;
     for &(lock, target) in &moves {
         if target.count != best_count {
