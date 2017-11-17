@@ -1,14 +1,49 @@
 //! Master "Speed Dial" lock simulation.
 
+#[macro_use]
+extern crate clap;
+
+use clap::{App, AppSettings, Arg};
 use std::fmt;
 use std::collections::BTreeMap;
 
 fn main() {
 
+    let matches = App::new("sdial")
+        .version(crate_version!())
+        .setting(AppSettings::GlobalVersion)
+        .arg(Arg::with_name("max")
+             .short("m")
+             .long("max")
+             .takes_value(true)
+             .help(
+                 "Maximum number of moves to consider (default 10)"))
+        .arg(Arg::with_name("dups")
+             .short("d")
+             .long("dups")
+             .help(
+                 "Show all moves when they are duplicates"))
+        .arg(Arg::with_name("all")
+             .short("a")
+             .long("all")
+             .help(
+                 "Show all combinations instead of just the best"))
+        .arg(Arg::with_name("bests")
+             .short("b")
+             .long("bests")
+             .help(
+                 "Show all of the best candidates, not just the first"))
+        .get_matches();
+
     let mut all = BTreeMap::new();
 
     // let max = 11;
-    let max = 10;
+    let max = matches.value_of("max").unwrap_or("10")
+        .parse::<u64>().unwrap();
+
+    let show_dups = matches.is_present("dups");
+    let show_all = matches.is_present("all");
+    let show_bests = matches.is_present("bests");
 
     for moves in 0..max {
         for binary in 0u64 .. (1 << 2*(moves+1)) {
@@ -49,17 +84,35 @@ fn main() {
     moves.sort_by(|a, b| a.1.seq.0.len().cmp(&b.1.seq.0.len()));
     moves.sort_by_key(|m| m.1.count);
 
-    for &(lock, target) in &moves {
-        println!("{} ({:4} target) {:-2} ({})", lock, target.count, target.seq.0.len(), target.seq);
-        if target.count > 1 {
-            for mv in &target.all {
-                println!("   {}", mv);
+    if show_all {
+        for &(lock, target) in &moves {
+            println!("{} ({:4} target) {:-2} ({})", lock, target.count, target.seq.0.len(), target.seq);
+            if show_dups && target.count > 1 {
+                for mv in &target.all {
+                    println!("   {}", mv);
+                }
             }
         }
     }
 
     // Find the best move.
-    println!("\nBest: {} ({} target) ({})", moves[0].0, moves[0].1.count, moves[0].1.seq);
+    let best_count = moves[0].1.count;
+    for &(lock, target) in &moves {
+        if target.count != best_count {
+            break;
+        }
+
+        println!("Best: {} ({} target) ({})", lock, target.count, target.seq);
+        if show_dups && target.count > 1 {
+            for mv in &target.all {
+                println!("   {}", mv);
+            }
+        }
+
+        if !show_bests {
+            break;
+        }
+    }
 }
 
 /// How we got to a state.
